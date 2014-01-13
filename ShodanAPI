@@ -1,0 +1,295 @@
+require 'curb'
+require 'json'
+require 'nokogiri'
+
+class ShodanAPI
+  # Initialize ShodanAPI via passed API Key
+  def initialize(apikey)
+    @url="http://www.shodanhq.com/api/"
+    if shodan_connect(apikey)
+        @key=apikey
+    end
+  end
+
+  # Check API Key against API Info Query
+  # Return True on success, False on Error or Failure
+  def shodan_connect(apikey)
+    url = @url + "info?key=#{apikey}"
+    begin
+      c = Curl::Easy.perform(url)
+      if c.body_str =~ /"unlocked_left": \d+, "telnet": .+, "plan": ".+", "https": .+, "unlocked": .+/i
+        results = JSON.parse(c.body_str)
+        @plan = results['plan']
+        @unlocked = results['unlocked']
+        @unlocks = results['unlocked_left']
+        @https = results['https']
+        @telnet = results['telnet']
+        return true
+      elsif c.body_str =~ /"error": "API access denied"/i
+        puts "Access Denied using API Key '#{apikey}'!"
+        puts "Check Key & Try Again...."
+        return false
+      else
+        puts "Unknown Problem with Connection to Shodan API!"
+        return false
+      end
+    rescue => e
+      puts "Problem with Connection to Shodan API!"
+      puts "\t=> #{e}"
+      return false
+    end
+  end
+
+  # Just checks our key is working (re-using shodan_connect so updates @unlocks)
+  # Returns True or False
+  def connected?
+    if shodan_connect(@key)
+      return true
+    else
+      return  false
+    end
+  end
+
+  # Return the number of unlocks remaining
+  def unlocks
+    if shodan_connect(@key)
+      return @unlocks.to_i
+    else
+      return nil
+    end
+  end
+
+  # Check if HTTPS is Enabled
+  def https?
+    if shodan_connect(@key)
+      if @https
+        return true
+      else
+        return false
+      end
+    else
+      return false
+    end
+  end
+
+  # Check if Telnet is Enabled
+  def telnet?
+    if shodan_connect(@key)
+      if @telnet
+        return true
+      else
+        return false
+      end
+    else
+      return false
+    end
+  end
+
+  # Actually display Basic Info for current API Key
+  def info
+    url = @url + 'info?key=' + @key
+    begin
+      c = Curl::Easy.perform(url)
+      results = JSON.parse(c.body_str)
+      puts
+      puts "Shodan API Key Confirmed!"
+      puts "API Key: #{@key}"
+      puts "Plan Type: #{results['plan']}"
+      puts "Unlocked: #{results['unlocked']}"
+      puts "Unlocks Remaining: #{results['unlocked_left']}"
+      puts "HTTPS Enabled: #{results['https']}"
+      puts "Telnet Enabled: #{results['telnet']}"
+      return true
+    rescue => e
+      puts "Problem with Connection to Shodan API!"
+      puts "\t=> #{e}"
+      return false
+    end
+  end
+
+  # Lookup all available information for a specific IP address
+  # Returns results hash or nil
+  def host(ip)
+    url = @url + 'host?ip=' + ip + '&key=' + @key
+    begin
+      c = Curl::Easy.perform(url)
+      results = JSON.parse(c.body_str)
+      return results
+    rescue => e
+      puts "Problem running Host Search!"
+      puts "\t=> #{e}"
+      return nil
+    end
+  end
+
+  # Returns the number of devices that a search query found
+  # Unrestricted usage of all advanced filters
+  # Return results count or nil on failure
+  def count(string)
+    url = @url + 'count?q=' + string + '&key=' + @key
+    begin
+      c = Curl::Easy.perform(url)
+      results = JSON.parse(c.body_str)
+      return results['total']
+    rescue => e
+      puts "Problem grabbing results count!"
+      puts "\t=> #{e}"
+      return nil
+    end
+  end
+
+  # Search Shodan for devices using a search query
+  # Returns results hash or nil
+  def search(string, filters={})
+    prem_filters =  [ 'city', 'country', 'geo', 'net', 'before', 'after', 'org', 'isp', 'title', 'html' ]
+    cheap_filters = [ 'hostname', 'os', 'port' ]
+    url = @url + 'search?q=' + string
+    if not filters.empty?
+      filters.each do |k, v|
+        if cheap_filters.include?(k)
+          url += ' ' + k + ":\"#{v}\""
+        end
+        if prem_filters.include?(k)
+          if @unlocks.to_i > 1
+            url += ' ' + k + ":\"#{v}\""
+            @unlocks = @unlocks.to_i - 1 # Remove an unlock for use of filter
+          else
+            puts "Not Enough Unlocks Left to run Premium Filter Search!"
+            puts "Try removing '#{k}' filter and trying again...."
+            return nil
+          end
+        end
+      end
+    end
+    url += '&key=' + @key
+    begin
+      c = Curl::Easy.perform(url)
+      results = JSON.parse(c.body_str)
+      return results
+    rescue => e
+      puts "Problem running Shodan Search!"
+      puts "\t=> #{e}"
+      return nil
+    end
+  end
+
+  # Quick Search Shodan for devices using a search query
+  # Results are limited to only the IP addresses
+  # Returns results array or nil
+  def quick_search(string, filters={})
+    prem_filters =  [ 'city', 'country', 'geo', 'net', 'before', 'after', 'org', 'isp', 'title', 'html' ]
+    cheap_filters = [ 'hostname', 'os', 'port' ]
+    url = @url + 'search?q=' + string
+    if not filters.empty?
+      filters.each do |k, v|
+        if cheap_filters.include?(k)
+          url += ' ' + k + ":\"#{v}\""
+        end
+        if prem_filters.include?(k)
+          if @unlocks.to_i > 1
+            url += ' ' + k + ":\"#{v}\""
+            @unlocks = @unlocks.to_i - 1
+          else
+            puts "Not Enough Unlocks Left to run Premium Filter Search!"
+            puts "Try removing '#{k}' filter and trying again...."
+            return nil
+          end
+        end
+      end
+    end
+    url += '&key=' + @key
+    begin
+      ips=[]
+      c = Curl::Easy.perform(url)
+      results = JSON.parse(c.body_str)
+      results['matches'].each do |host|
+       ips << host['ip']
+      end
+      return ips
+    rescue => e
+      puts "Problem running Shodan Quick Search!"
+      puts "\t=> #{e}"
+      return nil
+    end
+  end
+
+  # Perform Shodan Exploit Search as done on Web
+  # Provide Search String and source
+  # Source can be: metasploit, exploitdb, or cve
+  # Returns results hash array on success: { downloadID => { link => description } }
+  # Returns nil on failure
+  def sploit_search(string, source)
+    sources = [ "metasploit", "exploitdb", "cve" ]
+    if sources.include?(source.downcase)
+      sploits = 'https://exploits.shodan.io/?q=' + string + ' source:"' + source.downcase + '"'
+      begin
+        results={}
+        c = Curl::Easy.perform(sploits)
+        page = Nokogiri::HTML(c.body_str) # Parsable doc object now
+        # Enumerate target section, parse out link & description
+        page.css('div[class="search-result well"]').each do |linematch|
+          if linematch.to_s =~ /<div class="search-result well">\s+<a href="(.+)"\s/
+            link=$1
+          end
+          if linematch.to_s =~ /class="title">(.+)\s+<\/a>/
+            desc=$1.gsub('<em>', '').gsub('</em>', '')
+          end
+          case source.downcase
+          when 'cve'
+            dl_id = 'N/A for CVE Search'
+          when 'exploitdb'
+            dl_id = link.split('/')[-1] unless link.nil?
+          when 'metasploit'
+            dl_id = link.sub('http://www.metasploit.com/', '').sub(/\/$/, '') unless link.nil?
+          end
+          results.store(dl_id, { link => desc}) unless (link.nil? or link == '') or (desc.nil? or desc == '') or (dl_id.nil? or dl_id == 'N/A for CVE Search')
+        end
+        return results
+      rescue Curl::Err::ConnectionFailedError => e
+        puts "Shitty connection yo....."
+        return nil
+      rescue => e
+        puts "Unknown connection problem....."
+        puts "\t=> #{e}"
+        return nil
+      end
+    else
+      puts "Invalid Search Source Requested!"
+      return nil
+    end
+  end
+
+  # Download Exploit Code from Exploit-DB or MSF Github Page
+  # By passing in the Download ID (which can be seen in sploit_search() results)
+  # Return { 'Download' => dl_link, 'Viewing' => v_link, 'Exploit' => c.body_str }
+  # or nil on failure
+  def sploit_download(id, source)
+    sources = [ "metasploit", "exploitdb" ]
+    if sources.include?(source.downcase)
+      case source.downcase
+      when 'exploitdb'
+        dl_link = "http://www.exploit-db.com/download/#{id}/"
+        v_link = "http://www.exploit-db.com/exploits/#{id}/"
+      when 'metasploit'
+        dl_link = "https://raw.github.com/rapid7/metasploit-framework/master/#{id.sub('/exploit/', '/exploits/')}.rb"
+        v_link = "http://www.rapid7.com/db/#{id}/"
+      end
+      begin
+        c = Curl::Easy.perform(dl_link)
+        page = Nokogiri::HTML(c.body_str) # Parsable doc object now
+        results = { 'Download' => dl_link, 'Viewing' => v_link, 'Exploit' => c.body_str }
+        return results
+      rescue Curl::Err::ConnectionFailedError => e
+        puts "Shitty connection yo".light_red + ".....".white
+        return false
+      rescue => e
+        puts "Unknown connection problem".light_red + ".....".white
+        puts "#{e}".light_red
+        return false
+      end
+    else
+      puts "Invalid Download Source Requested".light_red + "!".white
+      return false
+    end
+  end
+end
