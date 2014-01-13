@@ -6,7 +6,7 @@ This is the Shodan API Class &amp; Search tool that I wrote in Ruby since their 
 
 Using ShodanAPI Class:
 ----------------------
-
+```
 # API Key Goes Here:
 dakey='pHHlgpFt8Ka3Stb5UlTxcaEwciOeF2QM'
 
@@ -135,4 +135,4 @@ if shodan.connected?
   end
 else
   exit 666;
-end
+end```
