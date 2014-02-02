@@ -7,6 +7,15 @@ This is the Shodan API Class &amp; Search tool that I wrote in Ruby since their 
 Using ShodanAPI Class:
 ----------------------
 ```
+# Ruby Gem Requirements:
+  colorize => for some nice color
+  curb => for clean and easy HTTP requests (with power of libcurl)
+  json => for parsing API info
+  nokogiri => for page parsing of search results
+
+# To Install Gems:
+  sudo gem install colorize curb json nokogiri
+
 # API Key Goes Here:
 dakey='pHHlgpFt8Ka3Stb5UlTxcaEwciOeF2QM'
 
