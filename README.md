@@ -16,7 +16,7 @@ Using ShodanAPI Class:
 # To Install Gems:
  bundle install
 
-## Troubleshooting Gem Installation Failures
+# Troubleshooting Gem Installation Failures
 Make sure the proper dependencies for the system are installed. The dependencies_install.sh script can be used for this on Debian-based systems.
 
 # API Key Goes Here:
